@@ -5,12 +5,22 @@ All notable changes to the Windows Diagnostic & Problem-Fixer tool.
 ## [1.1.0]
 
 ### Added
-- **6 new detection rules:** device driver load failures (Kernel-PnP 219),
-  Volume Shadow Copy / backup errors (VSS), Windows Installer (MSI) failures,
-  Group Policy processing errors, user-profile load problems, and account
-  lockouts.
-- **2 new fix actions:** `refresh-grouppolicy` (gpupdate /force) and
-  `restart-spooler` (restart Print Spooler and clear the stuck print queue).
+- **Standalone executables.** `build/Build-Exe.ps1` bundles the whole tool into
+  `WindowsDiagnostic.exe` (GUI) and `WindowsDiagnostic-CLI.exe` via ps2exe, and a
+  **Build EXE** GitHub Actions workflow compiles them on Windows and publishes
+  them as downloadable artifacts / Release assets.
+- **Pro GUI** (`Show-DiagnosticGui`): a dark, modern WPF dashboard with summary
+  cards, severity-coloured grid, text search + severity filter, a details pane,
+  progress, an in-app "Run as admin" button, "Fix Selected" / "Fix All Safe",
+  and HTML/JSON/CSV export.
+- **14 new detection rules** (30 total): storage controller resets, NTFS,
+  DCOM 10010, dirty shutdown (6008), WMI errors, TCP/IP stack, Windows Search
+  corruption, Perflib, MSI installer, driver load, VSS/backup, Group Policy,
+  user-profile, account lockout, and **Microsoft Defender threat / signature**
+  detection.
+- **8 new fix actions** (17 total): `refresh-grouppolicy`, `restart-spooler`,
+  `dism-componentcleanup`, `repair-wmi`, `rebuild-search`, `defender-scan`,
+  `restart-explorer`, `reset-firewall`.
 - **`Repair-WindowsProblem -ApplyFix <id>`** — run any fix action directly,
   without needing a detected problem (e.g. `-ApplyFix restart-spooler`).
 - **JSON / CSV export** via `-JsonPath` and `-CsvPath` on

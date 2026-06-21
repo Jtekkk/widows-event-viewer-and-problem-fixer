@@ -1,0 +1,48 @@
+name: Build EXE
+
+# Builds the standalone Windows executables (GUI + CLI) with ps2exe on a real
+# Windows runner, uploads them as downloadable artifacts, and — when a version
+# tag (v*) is pushed — attaches them to a GitHub Release.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master, "claude/**" ]
+    tags: [ "v*" ]
+
+permissions:
+  contents: write   # needed to create a Release on tag
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build executables
+        shell: pwsh
+        run: |
+          ./build/Build-Exe.ps1 -OutputDir dist
+          Get-ChildItem dist -Filter *.exe | Format-Table Name, Length
+
+      - name: Smoke-test the CLI exe
+        shell: pwsh
+        run: |
+          # Runs a quick real scan to confirm the compiled exe actually works.
+          & ./dist/WindowsDiagnostic-CLI.exe -Days 1 -Quiet -NoHtmlReport
+          if ($LASTEXITCODE -ne 0) { throw "CLI exe exited with $LASTEXITCODE" }
+          Write-Host "CLI exe ran successfully."
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WindowsDiagnostic-exe
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Attach to Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          generate_release_notes: true

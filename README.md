@@ -44,12 +44,30 @@ repair the ones that have a known fix.
 3. **Fixes** each detected problem that has a known, safe remedy — SFC/DISM,
    `chkdsk`, service restart + recovery, Windows Update reset, DNS/DHCP, network
    stack reset, time resync, temp-file cleanup.
-4. **Reports** to the console *and* a self-contained **HTML report**, plus an
-   optional **GUI**.
+4. **Reports** to the console *and* a self-contained **HTML report** (plus JSON/CSV),
+   with a polished **desktop app (GUI)**.
 
 Safety is built in: fixes are **opt-in** (`-AutoFix`), support **`-WhatIf`**
 previews, **confirm before each change** by default, and create a **System
 Restore point** first.
+
+---
+
+## Get the app (.exe)
+
+You don't need to install PowerShell modules — grab the compiled app:
+
+1. Open the repo's **Actions** tab → the latest **Build EXE** run → download the
+   **`WindowsDiagnostic-exe`** artifact. It contains:
+   - **`WindowsDiagnostic.exe`** — the GUI app (double-click to run)
+   - **`WindowsDiagnostic-CLI.exe`** — the command-line version
+2. Run `WindowsDiagnostic.exe`. Click **Scan**, then **Fix Selected** /
+   **Fix All Safe**. Use the in-app **Run as admin** button to enable repairs.
+
+Tagged releases (`v*`) also attach the EXEs to the GitHub **Releases** page.
+
+Prefer to build it yourself on Windows? `pwsh -File build\Build-Exe.ps1`
+(auto-installs `ps2exe`, writes the EXEs to `dist\`).
 
 ---
 
@@ -95,10 +113,11 @@ Invoke-WindowsDiagnostic                 # scan + report
 Invoke-WindowsDiagnostic -AutoFix        # scan + fix (confirms each)
 ```
 
-GUI:
+GUI (pro desktop dashboard — scan, filter/search, fix selected, export):
 
 ```powershell
-.\gui\Start-DiagnosticGui.ps1            # run elevated to enable fixes
+.\gui\Start-DiagnosticGui.ps1            # or just run WindowsDiagnostic.exe
+Import-Module .\WindowsDiagnosticTool.psd1; Show-DiagnosticGui   # from the module
 ```
 
 If you get an execution-policy error, start PowerShell with
@@ -144,35 +163,44 @@ If you get an execution-policy error, start PowerShell with
 | `SYS-KERNELPOWER-41` | Unexpected shutdown / power loss | System | Critical | *manual guidance* |
 | `SYS-BUGCHECK-1001` | Blue Screen / bug check | System | Critical | SFC + DISM |
 | `SYS-TIME-SERVICE` | Clock out of sync | System | Warning | `w32tm /resync` |
-| `SYS-DCOM-10016` | DCOM permission noise | System | Warning | *manual guidance* |
+| `SYS-DCOM-10016` / `SYS-DCOM-10010` | DCOM permission / timeout | System | Warning | *manual guidance* |
 | `SYS-SERVICE-CRASH` | Service crashed / failed to start | Services | Error | restart + set auto-recovery |
+| `SYS-UNEXPECTED-SHUTDOWN` | Dirty shutdown (6008) | System | Error | *manual guidance* |
+| `SYS-WMI-ERROR` | WMI / management errors | System | Error | verify/repair WMI |
 | `UPD-FAILURE` | Windows Update failures | Updates | Error | reset Update components |
 | `NET-DNS-FAIL` | DNS resolution failures | Network | Warning | flush DNS |
 | `NET-DHCP-FAIL` | DHCP / IP address failures | Network | Warning | release/renew DHCP |
+| `NET-TCPIP` | TCP/IP stack errors | Network | Warning | renew / reset stack |
 | `APP-CRASH-1000` | Application crashes | Application | Error | SFC + DISM |
 | `APP-HANG-1002` | Application hangs | Application | Warning | *manual guidance* |
 | `APP-NET-RUNTIME` | .NET runtime crashes | Application | Error | SFC + DISM |
+| `APP-SEARCH-INDEX` | Windows Search corruption | Application | Warning | rebuild search index |
+| `APP-MSI-FAIL` | Windows Installer (MSI) failures | Application | Error | *manual guidance* |
+| `APP-PERFLIB` | Performance counter errors | Performance | Warning | *manual guidance* |
 | `HW-WHEA-ERROR` | Hardware errors (WHEA) | Hardware | Critical | *manual guidance* |
 | `SYS-DRIVER-LOAD` | Device driver failed to load | Hardware | Warning | *manual guidance* |
 | `SYS-VSS-ERROR` | Volume Shadow Copy (backup) errors | System | Error | *manual guidance* |
-| `APP-MSI-FAIL` | Windows Installer (MSI) failures | Application | Error | *manual guidance* |
 | `SYS-GROUPPOLICY` | Group Policy processing errors | System | Warning | `gpupdate /force` |
 | `APP-USER-PROFILE` | User profile load problems | System | Error | *manual guidance* |
 | `PERF-SLOW-BOOT` | Slow boot / shutdown | Performance | Warning | clean temp files |
 | `SEC-LOGON-FAIL` | Repeated failed sign-ins | Security | Warning | *manual guidance* |
 | `SEC-ACCOUNT-LOCKOUT` | Account lockouts | Security | Warning | *manual guidance* |
+| `SEC-DEFENDER-THREAT` | Malware detected by Defender | Security | Critical | update + quick scan |
+| `SEC-DEFENDER-UPDATE` | Defender signatures out of date | Security | Warning | update + quick scan |
 | `LIVE-DISK-SPACE` | Low free disk space | Disk | Warning/Critical | clean temp files |
 | `LIVE-REBOOT-PENDING` | Pending reboot | System | Warning | *manual guidance* |
 | `LIVE-SMART-FAIL` | Drive predicting failure (SMART) | Hardware | Critical | *manual guidance* |
 
-`Get-WindowsDiagnosticRule | Format-Table` shows this live, including which fixes
-need elevation or a reboot.
+…and more — **30 detection rules** in total. `Get-WindowsDiagnosticRule | Format-Table`
+shows them all live, including which fixes need elevation or a reboot.
 
 ### The fix actions
 
 `sfc-dism` · `chkdsk-scan` · `restart-service` · `reset-windowsupdate` ·
 `flush-dns` · `renew-dhcp` · `reset-network` (reboot) · `resync-time` ·
-`clean-temp` · `refresh-grouppolicy` · `restart-spooler`. Each is implemented in
+`clean-temp` · `refresh-grouppolicy` · `restart-spooler` ·
+`dism-componentcleanup` · `repair-wmi` · `rebuild-search` · `defender-scan` ·
+`restart-explorer` · `reset-firewall` (**17 fixes**). Each is implemented in
 [`src/Private/Get-DiagFixAction.ps1`](src/Private/Get-DiagFixAction.ps1) and
 returns a structured result (success, reboot-required, message, full output).
 
@@ -221,8 +249,10 @@ Invoke-Diagnostic.ps1            # standalone launcher (no install needed)
 WindowsDiagnosticTool.psd1/.psm1 # module manifest + loader
 src/
   Private/                       # engine: scanner, rules, fixes, analysis, reports
-  Public/                        # exported cmdlets
-gui/Start-DiagnosticGui.ps1      # optional WPF front-end
+  Public/                        # exported cmdlets + Show-DiagnosticGui
+gui/Start-DiagnosticGui.ps1      # GUI launcher (calls Show-DiagnosticGui)
+build/Build-Exe.ps1              # compiles the GUI + CLI executables (ps2exe)
+.github/workflows/               # CI (tests) + Build EXE (publishes the .exe)
 tests/                           # Pester tests (cross-platform)
 examples/Example-Usage.ps1       # copy/paste recipes
 ```

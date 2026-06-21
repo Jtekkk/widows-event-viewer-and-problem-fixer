@@ -338,6 +338,138 @@ function Get-DiagFixAction {
     }
 
     # ------------------------------------------------------------------ #
+    # Component store cleanup (free space, fix servicing)
+    # ------------------------------------------------------------------ #
+    $actions['dism-componentcleanup'] = [pscustomobject]@{
+        Id             = 'dism-componentcleanup'
+        Name           = 'Clean up the component store (WinSxS)'
+        Description    = 'Runs DISM /StartComponentCleanup to remove superseded Windows update components, reclaiming disk space and resolving servicing-store bloat.'
+        RequiresAdmin  = $true
+        RequiresReboot = $false
+        Action         = {
+            param($Context)
+            $res = Invoke-DiagProcess -FilePath 'DISM.exe' -ArgumentList '/Online', '/Cleanup-Image', '/StartComponentCleanup' -SuccessExitCodes 0, 3010
+            [pscustomobject]@{ Success = $res.Success; RebootRequired = ($res.ExitCode -eq 3010); Message = 'Component store cleaned.'; Detail = $res.Output }
+        }
+    }
+
+    # ------------------------------------------------------------------ #
+    # Repair the WMI repository
+    # ------------------------------------------------------------------ #
+    $actions['repair-wmi'] = [pscustomobject]@{
+        Id             = 'repair-wmi'
+        Name           = 'Verify / repair the WMI repository'
+        Description    = 'Checks the WMI repository for consistency and salvages it if it is corrupt. Fixes management/monitoring tools and many "Get-CimInstance fails" problems.'
+        RequiresAdmin  = $true
+        RequiresReboot = $false
+        Action         = {
+            param($Context)
+            $verify = Invoke-DiagProcess -FilePath 'winmgmt.exe' -ArgumentList '/verifyrepository'
+            $detail = "VERIFY:`n$($verify.Output)"
+            $salvaged = $false
+            if ($verify.Output -match 'not consistent|inconsistent') {
+                $salvage = Invoke-DiagProcess -FilePath 'winmgmt.exe' -ArgumentList '/salvagerepository'
+                $detail += "`n`nSALVAGE:`n$($salvage.Output)"
+                $salvaged = $salvage.Success
+            }
+            $msg = if ($verify.Output -match 'is consistent') { 'WMI repository is consistent.' }
+                   elseif ($salvaged) { 'WMI repository was inconsistent and has been salvaged.' }
+                   else { 'WMI repository checked (see detail).' }
+            [pscustomobject]@{ Success = $true; RebootRequired = $false; Message = $msg; Detail = $detail }
+        }
+    }
+
+    # ------------------------------------------------------------------ #
+    # Rebuild the Windows Search index
+    # ------------------------------------------------------------------ #
+    $actions['rebuild-search'] = [pscustomobject]@{
+        Id             = 'rebuild-search'
+        Name           = 'Rebuild Windows Search index'
+        Description    = 'Stops Windows Search, removes the corrupt index database and restarts the service so the index is rebuilt. Fixes broken Start-menu/file search.'
+        RequiresAdmin  = $true
+        RequiresReboot = $false
+        Action         = {
+            param($Context)
+            $details = New-Object System.Collections.Generic.List[string]
+            try { Stop-Service -Name 'WSearch' -Force -ErrorAction Stop; $details.Add('Stopped Windows Search.') }
+            catch { $details.Add("Could not stop WSearch: $($_.Exception.Message)") }
+            $edb = Join-Path $env:ProgramData 'Microsoft\Search\Data\Applications\Windows\Windows.edb'
+            if (Test-Path -LiteralPath $edb) {
+                try { Remove-Item -LiteralPath $edb -Force -ErrorAction Stop; $details.Add('Removed search index database.') }
+                catch { $details.Add("Could not remove index db: $($_.Exception.Message)") }
+            }
+            $started = $false
+            try { Start-Service -Name 'WSearch' -ErrorAction Stop; $started = $true; $details.Add('Restarted Windows Search (index will rebuild).') }
+            catch { $details.Add("Could not start WSearch: $($_.Exception.Message)") }
+            [pscustomobject]@{ Success = $started; RebootRequired = $false; Message = 'Windows Search index reset; it will rebuild in the background.'; Detail = ($details -join "`n") }
+        }
+    }
+
+    # ------------------------------------------------------------------ #
+    # Update Microsoft Defender and run a quick scan
+    # ------------------------------------------------------------------ #
+    $actions['defender-scan'] = [pscustomobject]@{
+        Id             = 'defender-scan'
+        Name           = 'Update Defender & run a quick scan'
+        Description    = 'Updates Microsoft Defender security intelligence and runs a quick antivirus scan to detect and remediate threats.'
+        RequiresAdmin  = $true
+        RequiresReboot = $false
+        Action         = {
+            param($Context)
+            $detail = ''
+            if (-not (Get-Command -Name Start-MpScan -ErrorAction SilentlyContinue)) {
+                return [pscustomobject]@{ Success = $false; RebootRequired = $false; Message = 'Microsoft Defender cmdlets are not available (third-party AV may be installed).'; Detail = '' }
+            }
+            try { Update-MpSignature -ErrorAction Stop; $detail += "Security intelligence updated.`n" }
+            catch { $detail += "Signature update issue: $($_.Exception.Message)`n" }
+            try {
+                Start-MpScan -ScanType QuickScan -ErrorAction Stop
+                $detail += 'Quick scan completed.'
+                $ok = $true
+            }
+            catch { $detail += "Scan error: $($_.Exception.Message)"; $ok = $false }
+            [pscustomobject]@{ Success = $ok; RebootRequired = $false; Message = 'Defender updated and quick scan run.'; Detail = $detail }
+        }
+    }
+
+    # ------------------------------------------------------------------ #
+    # Restart the Windows Explorer shell
+    # ------------------------------------------------------------------ #
+    $actions['restart-explorer'] = [pscustomobject]@{
+        Id             = 'restart-explorer'
+        Name           = 'Restart Windows Explorer'
+        Description    = 'Restarts the Explorer shell to clear a frozen taskbar, missing icons, or an unresponsive desktop.'
+        RequiresAdmin  = $false
+        RequiresReboot = $false
+        Action         = {
+            param($Context)
+            try {
+                Get-Process -Name explorer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
+                if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
+                [pscustomobject]@{ Success = $true; RebootRequired = $false; Message = 'Windows Explorer restarted.'; Detail = '' }
+            }
+            catch { [pscustomobject]@{ Success = $false; RebootRequired = $false; Message = "Could not restart Explorer: $($_.Exception.Message)"; Detail = '' } }
+        }
+    }
+
+    # ------------------------------------------------------------------ #
+    # Reset Windows Firewall to defaults
+    # ------------------------------------------------------------------ #
+    $actions['reset-firewall'] = [pscustomobject]@{
+        Id             = 'reset-firewall'
+        Name           = 'Reset Windows Firewall to defaults'
+        Description    = 'Restores Windows Defender Firewall rules and settings to their defaults. Use when custom rules are blocking connectivity. Removes custom firewall rules.'
+        RequiresAdmin  = $true
+        RequiresReboot = $false
+        Action         = {
+            param($Context)
+            $res = Invoke-DiagProcess -FilePath 'netsh.exe' -ArgumentList 'advfirewall', 'reset'
+            [pscustomobject]@{ Success = $res.Success; RebootRequired = $false; Message = 'Windows Firewall reset to defaults.'; Detail = $res.Output }
+        }
+    }
+
+    # ------------------------------------------------------------------ #
     # Refresh Group Policy
     # ------------------------------------------------------------------ #
     $actions['refresh-grouppolicy'] = [pscustomobject]@{

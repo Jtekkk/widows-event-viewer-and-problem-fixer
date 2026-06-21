@@ -14,7 +14,8 @@
         'Invoke-WindowsDiagnostic',
         'Get-WindowsDiagnosticReport',
         'Repair-WindowsProblem',
-        'Get-WindowsDiagnosticRule'
+        'Get-WindowsDiagnosticRule',
+        'Show-DiagnosticGui'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

@@ -178,12 +178,13 @@ Describe 'Repair-WindowsProblem behaviour' {
 }
 
 Describe 'Public surface' {
-    It 'exports the four public commands' {
+    It 'exports the public commands' {
         $cmds = (Get-Command -Module WindowsDiagnosticTool).Name
         $cmds | Should -Contain 'Invoke-WindowsDiagnostic'
         $cmds | Should -Contain 'Get-WindowsDiagnosticReport'
         $cmds | Should -Contain 'Repair-WindowsProblem'
         $cmds | Should -Contain 'Get-WindowsDiagnosticRule'
+        $cmds | Should -Contain 'Show-DiagnosticGui'
     }
 
     It 'Get-WindowsDiagnosticRule returns a fix name for fixable rules' {

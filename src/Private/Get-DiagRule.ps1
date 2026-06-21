@@ -55,8 +55,8 @@ function Get-DiagRule {
         # ----------------------------- DISK ----------------------------- #
         & $rule @{
             Id = 'SYS-DISK-ERROR'; Name = 'Disk I/O / bad block errors'; Category = 'Disk'; Severity = 'Critical'
-            LogName = 'System'; ProviderName = @('disk', 'Disk'); EventId = @(7, 11, 51, 52, 153)
-            Description = 'The disk subsystem logged controller, bad-block or I/O errors.'
+            LogName = 'System'; ProviderName = @('disk', 'Disk', 'storahci', 'iaStorA', 'storport', 'stornvme'); EventId = @(7, 11, 51, 52, 129, 153)
+            Description = 'The disk/storage subsystem logged controller, bad-block, reset or I/O errors.'
             Impact      = 'Often an early warning of a failing drive or cabling/controller fault; can cause data loss and crashes.'
             Recommendation = 'Back up important data now. Check SMART status and replace the drive if it is failing.'
             FixId = 'chkdsk-scan'
@@ -103,6 +103,40 @@ function Get-DiagRule {
             Recommendation = 'Most 10016 events are by-design and safe to ignore (Microsoft guidance). Only adjust the component Launch/Activation permissions in dcomcnfg if a specific app is broken.'
             FixId = $null
         }
+        & $rule @{
+            Id = 'SYS-DCOM-10010'; Name = 'DCOM server timeout (10010)'; Category = 'System'; Severity = 'Warning'
+            LogName = 'System'; ProviderName = 'Microsoft-Windows-DistributedCOM'; EventId = @(10010); MinCount = 3
+            Description = 'A DCOM server did not register with the system within the timeout period.'
+            Impact      = 'Can cause slow logons, app launch delays, or features that intermittently fail.'
+            Recommendation = 'Note the CLSID/AppID in the events; reinstall or repair the owning application. Often transient.'
+            FixId = $null
+        }
+        & $rule @{
+            Id = 'SYS-UNEXPECTED-SHUTDOWN'; Name = 'Previous shutdown was unexpected (6008)'; Category = 'System'; Severity = 'Error'
+            LogName = 'System'; ProviderName = @('EventLog', 'Microsoft-Windows-Eventlog'); EventId = @(6008); MinCount = 1
+            Description = 'Windows recorded that the previous shutdown was unexpected (dirty shutdown).'
+            Impact      = 'Repeated dirty shutdowns risk data/file-system corruption and point to crashes or power problems.'
+            Recommendation = 'Correlate with Kernel-Power 41 and BugCheck 1001. Check power, overheating and drivers.'
+            FixId = $null
+        }
+        & $rule @{
+            Id = 'SYS-WMI-ERROR'; Name = 'WMI / management errors'; Category = 'System'; Severity = 'Error'
+            LogName = 'Application'; ProviderName = @('Microsoft-Windows-WMI', 'WinMgmt'); EventId = @(28, 63, 65); MinCount = 2
+            Description = 'Windows Management Instrumentation reported provider or repository errors.'
+            Impact      = 'Breaks monitoring, management tooling, some Settings pages and scripts that query WMI/CIM.'
+            Recommendation = 'Verify and, if needed, salvage the WMI repository.'
+            FixId = 'repair-wmi'
+        }
+
+        # -------------------------- PERFORMANCE ------------------------- #
+        & $rule @{
+            Id = 'APP-PERFLIB'; Name = 'Performance counter (Perflib) errors'; Category = 'Performance'; Severity = 'Warning'
+            LogName = 'Application'; ProviderName = 'Microsoft-Windows-Perflib'; EventId = @(1008, 1023, 1010); MinCount = 3
+            Description = 'A performance-counter library failed to load or collect data.'
+            Impact      = 'Monitoring tools may show missing or wrong counters; usually low impact.'
+            Recommendation = 'Rebuild performance counters with "lodctr /R" if monitoring is affected.'
+            FixId = $null
+        }
 
         # --------------------------- SERVICES --------------------------- #
         & $rule @{
@@ -141,6 +175,14 @@ function Get-DiagRule {
             Recommendation = 'Release and renew the DHCP lease.'
             FixId = 'renew-dhcp'
         }
+        & $rule @{
+            Id = 'NET-TCPIP'; Name = 'TCP/IP stack errors'; Category = 'Network'; Severity = 'Warning'
+            LogName = 'System'; ProviderName = @('Tcpip', 'Tcpip6'); EventId = @(4199, 4227, 4231); MinCount = 3
+            Description = 'The TCP/IP stack reported address conflicts or connection-resource problems.'
+            Impact      = 'Intermittent connectivity drops and slow networking.'
+            Recommendation = 'Renew the IP lease; for persistent issues reset the network stack (Winsock + TCP/IP) and reboot.'
+            FixId = 'renew-dhcp'
+        }
 
         # -------------------------- APPLICATION ------------------------- #
         & $rule @{
@@ -166,6 +208,14 @@ function Get-DiagRule {
             Impact      = 'The affected .NET app is unstable; a damaged .NET Framework can affect many apps.'
             Recommendation = 'Update the application and the .NET runtime. A system file repair can fix a damaged framework.'
             FixId = 'sfc-dism'
+        }
+        & $rule @{
+            Id = 'APP-SEARCH-INDEX'; Name = 'Windows Search index corruption'; Category = 'Application'; Severity = 'Warning'
+            LogName = 'Application'; ProviderName = @('Microsoft-Windows-Search', 'Microsoft-Windows-Search-ProfileNotify'); EventId = @(3013, 1008, 9, 7042); MinCount = 2
+            Description = 'The Windows Search indexer reported corruption or repeated failures.'
+            Impact      = 'Start-menu and File-Explorer search return incomplete or no results.'
+            Recommendation = 'Rebuild the search index.'
+            FixId = 'rebuild-search'
         }
 
         # ---------------------------- HARDWARE -------------------------- #
@@ -255,6 +305,24 @@ function Get-DiagRule {
             Impact      = 'Users are blocked from signing in; often caused by a stale saved password on a device or service.'
             Recommendation = 'Find the source device/service caching the old password (the caller computer is in the event), then update or clear it.'
             FixId = $null
+        }
+        & $rule @{
+            Id = 'SEC-DEFENDER-THREAT'; Name = 'Malware detected by Defender'; Category = 'Security'; Severity = 'Critical'
+            LogName = 'Microsoft-Windows-Windows Defender/Operational'
+            ProviderName = 'Microsoft-Windows-Windows Defender'; EventId = @(1006, 1015, 1116, 1117, 1118, 1119); MinCount = 1
+            Description = 'Microsoft Defender detected (and possibly acted on) malware or suspicious behavior.'
+            Impact      = 'The system may be compromised; some threats need a full scan to fully remove.'
+            Recommendation = 'Update Defender and run a full/quick scan; review quarantined items.'
+            FixId = 'defender-scan'
+        }
+        & $rule @{
+            Id = 'SEC-DEFENDER-UPDATE'; Name = 'Defender signatures out of date'; Category = 'Security'; Severity = 'Warning'
+            LogName = 'Microsoft-Windows-Windows Defender/Operational'
+            ProviderName = 'Microsoft-Windows-Windows Defender'; EventId = @(2001, 2003); MinCount = 1
+            Description = 'Microsoft Defender failed to update its security intelligence (definitions).'
+            Impact      = 'Out-of-date definitions miss new threats.'
+            Recommendation = 'Force a definition update and quick scan.'
+            FixId = 'defender-scan'
         }
     )
 }
