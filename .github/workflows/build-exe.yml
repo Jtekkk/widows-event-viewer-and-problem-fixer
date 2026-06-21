@@ -1,8 +1,9 @@
 name: Build EXE
 
 # Builds the standalone Windows executables (GUI + CLI) with ps2exe on a real
-# Windows runner, uploads them as downloadable artifacts, and — when a version
-# tag (v*) is pushed — attaches them to a GitHub Release.
+# Windows runner, uploads them as downloadable artifacts, and publishes a GitHub
+# Release with the EXEs attached — on a version tag (v*) push, or when run
+# manually (workflow_dispatch), tagging the release from the module version.
 
 on:
   workflow_dispatch:
@@ -11,13 +12,20 @@ on:
     tags: [ "v*" ]
 
 permissions:
-  contents: write   # needed to create a Release on tag
+  contents: write   # needed to create the Release / tag
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read module version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Import-PowerShellDataFile ./WindowsDiagnosticTool.psd1).ModuleVersion
+          "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Build executables
         shell: pwsh
@@ -40,9 +48,20 @@ jobs:
           path: dist/*.exe
           if-no-files-found: error
 
-      - name: Attach to Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish Release with the EXEs
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+          name: Windows Diagnostic & Problem Fixer ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+          target_commitish: ${{ github.sha }}
           files: dist/*.exe
           generate_release_notes: true
+          body: |
+            Standalone Windows executables (built on windows-latest):
+            - **WindowsDiagnostic.exe** — the GUI app
+            - **WindowsDiagnostic-CLI.exe** — the command-line version
+
+            Unsigned: on first launch choose *More info → Run anyway* in SmartScreen.
+            Click **Run as admin** in the app to enable repairs.
+
