@@ -1,0 +1,23 @@
+# Generated reports & logs
+*.html
+WindowsDiagnostic_*.html
+*.diaglog
+diag*.log
+
+# PowerShell / editor noise
+*.psd1.bak
+.vs/
+.vscode/
+*.user
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Test output
+testResults*.xml
+coverage*.xml
+
+# But keep the example/report assets if any are intentionally committed
+!docs/**/*.html
